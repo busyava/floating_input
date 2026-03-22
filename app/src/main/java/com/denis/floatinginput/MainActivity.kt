@@ -12,8 +12,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import android.accessibilityservice.AccessibilityServiceInfo
-import android.view.accessibility.AccessibilityManager
 
 class MainActivity : AppCompatActivity() {
 
@@ -48,12 +46,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
-        val am = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
-        val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_GENERIC)
-        return enabledServices.any {
-            it.resolveInfo.serviceInfo.packageName == packageName &&
-            it.resolveInfo.serviceInfo.name == FloatingAccessibilityService::class.java.name
-        }
+        val serviceId = "$packageName/${FloatingAccessibilityService::class.java.name}"
+        val enabledServices = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return enabledServices.contains(serviceId)
     }
 
     private fun updateAccessibilityButton(btn: Button) {
