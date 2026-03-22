@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FloatingInput</string>
+    <string name="accessibility_service_description">Позволяет вставлять текст в поля ввода других приложений</string>
+</resources>
