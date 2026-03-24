@@ -11,7 +11,11 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.provider.Settings
+import android.util.Log
 import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -36,6 +40,11 @@ class FloatingService : Service() {
     private var lastText: String = ""
     private var templates = mutableListOf<String>()
     private var templatesVisible = true
+    private val healthHandler = Handler(Looper.getMainLooper())
+    private var lastRestartAttempt = 0L
+    private var notificationIsWarning = false
+    private var isMinimized = false
+    private var widgetParams: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -46,6 +55,7 @@ class FloatingService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         createWidget()
+        startHealthCheck()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -57,9 +67,104 @@ class FloatingService : Service() {
     }
 
     override fun onDestroy() {
+        stopHealthCheck()
         super.onDestroy()
         widgetView?.let { windowManager.removeView(it) }
         inputView?.let { windowManager.removeView(it) }
+    }
+
+    // --- Health monitoring ---
+
+    private fun startHealthCheck() {
+        healthHandler.postDelayed(healthRunnable, INITIAL_CHECK_DELAY)
+    }
+
+    private fun stopHealthCheck() {
+        healthHandler.removeCallbacks(healthRunnable)
+    }
+
+    private val healthRunnable = object : Runnable {
+        override fun run() {
+            checkAccessibilityHealth()
+            healthHandler.postDelayed(this, HEALTH_CHECK_INTERVAL)
+        }
+    }
+
+    private fun checkAccessibilityHealth() {
+        val alive = FloatingAccessibilityService.isAlive
+        val enabled = isAccessibilityEnabled()
+
+        if (enabled && !alive) {
+            val now = System.currentTimeMillis()
+            if (now - lastRestartAttempt > RESTART_COOLDOWN) {
+                if (tryRestartAccessibilityService()) {
+                    lastRestartAttempt = now
+                    Log.i(TAG, "Auto-restart attempted via WRITE_SECURE_SETTINGS")
+                    return // don't show warning yet, restart in progress
+                }
+            }
+            setWarningNotification(true)
+        } else {
+            setWarningNotification(false)
+        }
+    }
+
+    private fun isAccessibilityEnabled(): Boolean {
+        val serviceId = "$packageName/${FloatingAccessibilityService::class.java.name}"
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            ?: return false
+        return enabled.contains(serviceId)
+    }
+
+    private fun tryRestartAccessibilityService(): Boolean {
+        return try {
+            val serviceId = "$packageName/${FloatingAccessibilityService::class.java.name}"
+            val current = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+                ?: return false
+            if (!current.contains(serviceId)) return false
+
+            val without = current.split(":").filter { it != serviceId && it.isNotEmpty() }.joinToString(":")
+            Settings.Secure.putString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, without)
+
+            healthHandler.postDelayed({
+                Settings.Secure.putString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, current)
+                Log.i(TAG, "Accessibility service re-enabled")
+            }, 1500)
+
+            true
+        } catch (e: SecurityException) {
+            Log.w(TAG, "WRITE_SECURE_SETTINGS not granted, can't auto-restart")
+            false
+        }
+    }
+
+    private fun setWarningNotification(warning: Boolean) {
+        if (notificationIsWarning == warning) return
+        notificationIsWarning = warning
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(NOTIFICATION_ID, if (warning) createWarningNotification() else createNotification())
+    }
+
+    private fun createWarningNotification(): Notification {
+        val settingsIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        val settingsPending = PendingIntent.getActivity(
+            this, 1, settingsIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val stopIntent = Intent(this, FloatingService::class.java).apply { action = ACTION_STOP }
+        val stopPending = PendingIntent.getService(
+            this, 0, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("FloatingInput — автовставка упала!")
+            .setContentText("Нажмите чтобы перезапустить")
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentIntent(settingsPending)
+            .addAction(android.R.drawable.ic_delete, "Стоп", stopPending)
+            .setOngoing(true)
+            .build()
     }
 
     // --- Notification ---
@@ -131,10 +236,17 @@ class FloatingService : Service() {
             }
         }
 
-        // Drag на handle
-        val dragHandle = widgetView!!.findViewById<View>(R.id.dragHandle)
-        setupDrag(dragHandle, widgetView!!, params)
+        widgetParams = params
 
+        // Drag на handle + long press для сворачивания
+        val dragHandle = widgetView!!.findViewById<View>(R.id.dragHandle)
+        setupWidgetDrag(dragHandle, widgetView!!, params)
+
+        // Mini button (свёрнутое состояние)
+        val miniButton = widgetView!!.findViewById<View>(R.id.miniButton)
+        setupMiniButton(miniButton, widgetView!!, params)
+
+        widgetView!!.alpha = WIDGET_ALPHA
         windowManager.addView(widgetView, params)
     }
 
@@ -163,6 +275,126 @@ class FloatingService : Service() {
                 }
                 else -> false
             }
+        }
+    }
+
+    // --- Widget minimize/maximize ---
+
+    private fun setupWidgetDrag(handle: View, target: View, params: WindowManager.LayoutParams) {
+        var startX = 0
+        var startY = 0
+        var touchX = 0f
+        var touchY = 0f
+        var isDragging = false
+        var longPressTriggered = false
+        val longPressRunnable = Runnable {
+            longPressTriggered = true
+            minimizeWidget()
+        }
+
+        handle.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = params.x
+                    startY = params.y
+                    touchX = event.rawX
+                    touchY = event.rawY
+                    isDragging = false
+                    longPressTriggered = false
+                    handle.postDelayed(longPressRunnable, 500)
+                    target.animate().cancel()
+                    target.alpha = 0.9f
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - touchX
+                    val dy = event.rawY - touchY
+                    if (!isDragging && (dx * dx + dy * dy > 100)) {
+                        isDragging = true
+                        handle.removeCallbacks(longPressRunnable)
+                    }
+                    if (isDragging) {
+                        params.x = startX + (event.rawX - touchX).toInt()
+                        params.y = startY + (event.rawY - touchY).toInt()
+                        windowManager.updateViewLayout(target, params)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    handle.removeCallbacks(longPressRunnable)
+                    if (!longPressTriggered) {
+                        target.animate().alpha(WIDGET_ALPHA).setDuration(500).setStartDelay(1000).start()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun setupMiniButton(mini: View, target: View, params: WindowManager.LayoutParams) {
+        var startX = 0
+        var startY = 0
+        var touchX = 0f
+        var touchY = 0f
+        var isDragging = false
+
+        mini.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = params.x
+                    startY = params.y
+                    touchX = event.rawX
+                    touchY = event.rawY
+                    isDragging = false
+                    target.animate().cancel()
+                    target.alpha = 0.9f
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - touchX
+                    val dy = event.rawY - touchY
+                    if (!isDragging && (dx * dx + dy * dy > 100)) {
+                        isDragging = true
+                    }
+                    if (isDragging) {
+                        params.x = startX + (event.rawX - touchX).toInt()
+                        params.y = startY + (event.rawY - touchY).toInt()
+                        windowManager.updateViewLayout(target, params)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!isDragging) {
+                        maximizeWidget()
+                    } else {
+                        target.animate().alpha(WIDGET_ALPHA).setDuration(500).setStartDelay(1000).start()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun minimizeWidget() {
+        isMinimized = true
+        widgetView?.let { view ->
+            view.findViewById<View>(R.id.expandedContent).visibility = View.GONE
+            view.findViewById<View>(R.id.miniButton).visibility = View.VISIBLE
+            view.alpha = WIDGET_ALPHA
+            widgetParams?.let { windowManager.updateViewLayout(view, it) }
+        }
+    }
+
+    private fun maximizeWidget() {
+        isMinimized = false
+        widgetView?.let { view ->
+            view.findViewById<View>(R.id.expandedContent).visibility = View.VISIBLE
+            view.findViewById<View>(R.id.miniButton).visibility = View.GONE
+            view.alpha = 0.9f
+            view.animate().alpha(WIDGET_ALPHA).setDuration(500).setStartDelay(2000).start()
+            widgetParams?.let { windowManager.updateViewLayout(view, it) }
         }
     }
 
@@ -434,9 +666,14 @@ class FloatingService : Service() {
     }
 
     companion object {
+        private const val TAG = "FloatingService"
         private const val CHANNEL_ID = "floating_input"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_STOP = "STOP"
+        private const val HEALTH_CHECK_INTERVAL = 15_000L
+        private const val INITIAL_CHECK_DELAY = 30_000L
+        private const val RESTART_COOLDOWN = 60_000L
+        private const val WIDGET_ALPHA = 0.5f
         private const val PREFS_NAME = "floating_input_prefs"
         private const val KEY_TEMPLATES = "templates"
         private val DEFAULT_TEMPLATES = listOf(

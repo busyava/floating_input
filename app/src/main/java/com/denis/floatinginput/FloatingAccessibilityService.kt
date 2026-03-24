@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -12,6 +13,7 @@ class FloatingAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
+        Log.i(TAG, "Accessibility service connected (pid=${android.os.Process.myPid()})")
         // Enable InputMethod for direct text input (Termux, etc.)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val info = serviceInfo
@@ -25,6 +27,7 @@ class FloatingAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onDestroy() {
+        Log.w(TAG, "Accessibility service destroyed")
         instance = null
         super.onDestroy()
     }
@@ -72,7 +75,9 @@ class FloatingAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private const val TAG = "FloatingA11y"
         var instance: FloatingAccessibilityService? = null
             private set
+        val isAlive: Boolean get() = instance != null
     }
 }

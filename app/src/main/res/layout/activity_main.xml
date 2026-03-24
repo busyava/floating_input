@@ -20,7 +20,16 @@
         android:text="Плавающий ввод для Termux"
         android:textSize="16sp"
         android:textColor="#888888"
-        android:layout_marginBottom="48dp" />
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/txtStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Автовставка: проверка..."
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="32dp" />
 
     <Button
         android:id="@+id/btnStart"
@@ -42,9 +51,25 @@
     <Button
         android:id="@+id/btnAccessibility"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="48dp"
         android:text="Включить автовставку"
-        android:textSize="16sp"
+        android:textSize="14sp"
+        style="@style/Widget.MaterialComponents.Button.TextButton" />
+
+    <Button
+        android:id="@+id/btnBattery"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="Отключить оптимизацию батареи"
+        android:textSize="14sp"
+        style="@style/Widget.MaterialComponents.Button.TextButton" />
+
+    <Button
+        android:id="@+id/btnAutoStart"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="Автозапуск (Xiaomi)"
+        android:textSize="14sp"
         style="@style/Widget.MaterialComponents.Button.TextButton" />
 
 </LinearLayout>
