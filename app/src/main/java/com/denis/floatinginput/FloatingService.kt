@@ -45,6 +45,7 @@ class FloatingService : Service() {
     private var notificationIsWarning = false
     private var isMinimized = false
     private var widgetParams: WindowManager.LayoutParams? = null
+    private var savedInputText: String = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -419,6 +420,10 @@ class FloatingService : Service() {
         }
 
         val editText = inputView!!.findViewById<EditText>(R.id.editInput)
+        if (savedInputText.isNotEmpty()) {
+            editText.setText(savedInputText)
+            editText.setSelection(savedInputText.length)
+        }
         val btnSend = inputView!!.findViewById<ImageButton>(R.id.btnSend)
         val btnClose = inputView!!.findViewById<ImageButton>(R.id.btnClose)
         val templatesScroll = inputView!!.findViewById<HorizontalScrollView>(R.id.templatesScroll)
@@ -451,6 +456,7 @@ class FloatingService : Service() {
                 sendToTermux(text)
                 editText.text.clear()
                 hideInputWindow()
+                savedInputText = ""
             }
         }
 
@@ -468,6 +474,7 @@ class FloatingService : Service() {
 
     private fun hideInputWindow() {
         inputView?.let {
+            savedInputText = it.findViewById<EditText>(R.id.editInput).text.toString()
             windowManager.removeView(it)
             inputView = null
         }
@@ -516,6 +523,7 @@ class FloatingService : Service() {
                     lastText = template
                     sendToTermux(template)
                     hideInputWindow()
+                    savedInputText = ""
                 }
 
                 setOnLongClickListener {
