@@ -424,6 +424,12 @@ class FloatingService : Service() {
             editText.setText(savedInputText)
             editText.setSelection(savedInputText.length)
         }
+        // Долгое нажатие → меню буфера обмена (стандартный ActionMode не работает в overlay)
+        editText.setOnLongClickListener {
+            showClipboardMenu(editText)
+            true
+        }
+
         val btnSend = inputView!!.findViewById<ImageButton>(R.id.btnSend)
         val btnClose = inputView!!.findViewById<ImageButton>(R.id.btnClose)
         val templatesScroll = inputView!!.findViewById<HorizontalScrollView>(R.id.templatesScroll)
@@ -478,6 +484,80 @@ class FloatingService : Service() {
             windowManager.removeView(it)
             inputView = null
         }
+    }
+
+    // --- Буфер обмена ---
+
+    private fun pasteFromClipboard(editText: EditText) {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        if (clipboard.hasPrimaryClip()) {
+            val clip = clipboard.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+                val text = clip.getItemAt(0).coerceToText(this).toString()
+                if (text.isNotEmpty()) {
+                    val start = editText.selectionStart.coerceAtLeast(0)
+                    val end = editText.selectionEnd.coerceAtLeast(0)
+                    editText.text.replace(minOf(start, end), maxOf(start, end), text)
+                }
+            }
+        } else {
+            Toast.makeText(this, "Буфер пуст", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showClipboardMenu(editText: EditText) {
+        val hasSelection = editText.selectionStart != editText.selectionEnd
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val hasClip = clipboard.hasPrimaryClip()
+
+        val items = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        if (hasClip) {
+            items.add("Вставить")
+            actions.add { pasteFromClipboard(editText) }
+        }
+
+        if (hasSelection) {
+            items.add("Копировать")
+            actions.add {
+                val s = editText.selectionStart
+                val e = editText.selectionEnd
+                copyToClipboard(editText.text.substring(minOf(s, e), maxOf(s, e)))
+                Toast.makeText(this, "Скопировано", Toast.LENGTH_SHORT).show()
+            }
+            items.add("Вырезать")
+            actions.add {
+                val s = editText.selectionStart
+                val e = editText.selectionEnd
+                copyToClipboard(editText.text.substring(minOf(s, e), maxOf(s, e)))
+                editText.text.delete(minOf(s, e), maxOf(s, e))
+            }
+        }
+
+        if (editText.text.isNotEmpty()) {
+            items.add("Выделить всё")
+            actions.add { editText.selectAll() }
+        }
+
+        if (!hasSelection && editText.text.isNotEmpty()) {
+            items.add("Копировать всё")
+            actions.add {
+                copyToClipboard(editText.text.toString())
+                Toast.makeText(this, "Скопировано", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        if (items.isEmpty()) {
+            Toast.makeText(this, "Нет доступных действий", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val dialog = AlertDialog.Builder(ContextThemeWrapper(this, R.style.Theme_FloatingInput))
+            .setItems(items.toTypedArray()) { _, which -> actions[which]() }
+            .create()
+        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        dialog.show()
     }
 
     // --- Шаблоны ---
