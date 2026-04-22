@@ -46,6 +46,15 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <receiver
+            android:name=".StartReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.denis.floatinginput.START" />
+                <action android:name="com.denis.floatinginput.STOP" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
