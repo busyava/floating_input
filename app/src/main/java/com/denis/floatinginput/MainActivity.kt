@@ -21,19 +21,23 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
 
     private val statusHandler = Handler(Looper.getMainLooper())
+    private var pendingLauncherStart = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (isLauncherStart() && Settings.canDrawOverlays(this)) {
+            startFloatingService()
+            finish()
+            return
+        }
+
         setContentView(R.layout.activity_main)
 
-        requestNotificationPermission()
+        val notificationPermissionRequested = requestNotificationPermission()
 
         findViewById<Button>(R.id.btnStart).setOnClickListener {
-            if (Settings.canDrawOverlays(this)) {
-                startFloatingService()
-            } else {
-                requestOverlayPermission()
-            }
+            startOrRequestOverlayPermission()
         }
 
         findViewById<Button>(R.id.btnStop).setOnClickListener {
@@ -56,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateStatus()
+        startFromLauncher(notificationPermissionRequested)
     }
 
     override fun onResume() {
@@ -120,7 +125,7 @@ class MainActivity : AppCompatActivity() {
         startActivityForResult(intent, OVERLAY_REQUEST)
     }
 
-    private fun requestNotificationPermission() {
+    private fun requestNotificationPermission(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -130,7 +135,45 @@ class MainActivity : AppCompatActivity() {
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                     NOTIFICATION_REQUEST
                 )
+                return true
             }
+        }
+        return false
+    }
+
+    private fun startFromLauncher(notificationPermissionRequested: Boolean) {
+        if (!isLauncherStart()) {
+            return
+        }
+
+        if (notificationPermissionRequested) {
+            pendingLauncherStart = true
+        } else {
+            startOrRequestOverlayPermission()
+        }
+    }
+
+    private fun isLauncherStart(): Boolean {
+        return intent?.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER)
+    }
+
+    private fun startOrRequestOverlayPermission() {
+        if (Settings.canDrawOverlays(this)) {
+            startFloatingService()
+        } else {
+            requestOverlayPermission()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATION_REQUEST && pendingLauncherStart) {
+            pendingLauncherStart = false
+            startOrRequestOverlayPermission()
         }
     }
 

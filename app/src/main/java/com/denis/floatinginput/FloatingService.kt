@@ -37,9 +37,8 @@ class FloatingService : Service() {
     private lateinit var windowManager: WindowManager
     private var widgetView: View? = null
     private var inputView: View? = null
-    private var lastText: String = ""
     private var templates = mutableListOf<String>()
-    private var templatesVisible = true
+    private var templatesVisible = false
     private val healthHandler = Handler(Looper.getMainLooper())
     private var lastRestartAttempt = 0L
     private var notificationIsWarning = false
@@ -201,7 +200,7 @@ class FloatingService : Service() {
             .build()
     }
 
-    // --- Widget (2 кнопки) ---
+    // --- Widget ---
 
     private fun createWidget() {
         val inflater = LayoutInflater.from(this)
@@ -214,18 +213,9 @@ class FloatingService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
+            gravity = Gravity.TOP or Gravity.END
             x = 50
-            y = 200
-        }
-
-        // Кнопка T — вставить последний текст в текущее приложение
-        widgetView!!.findViewById<Button>(R.id.btnPaste).setOnClickListener {
-            if (lastText.isNotEmpty()) {
-                pasteToCurrentApp(lastText)
-            } else {
-                Toast.makeText(this, "Нет текста. Нажми ✎ для ввода", Toast.LENGTH_SHORT).show()
-            }
+            y = 50
         }
 
         // Кнопка ✎ — открыть/закрыть окно ввода
@@ -269,7 +259,7 @@ class FloatingService : Service() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = startX + (event.rawX - touchX).toInt()
+                    params.x = draggedX(startX, event.rawX, touchX, params)
                     params.y = startY + (event.rawY - touchY).toInt()
                     windowManager.updateViewLayout(target, params)
                     true
@@ -315,7 +305,7 @@ class FloatingService : Service() {
                         handle.removeCallbacks(longPressRunnable)
                     }
                     if (isDragging) {
-                        params.x = startX + (event.rawX - touchX).toInt()
+                        params.x = draggedX(startX, event.rawX, touchX, params)
                         params.y = startY + (event.rawY - touchY).toInt()
                         windowManager.updateViewLayout(target, params)
                     }
@@ -359,7 +349,7 @@ class FloatingService : Service() {
                         isDragging = true
                     }
                     if (isDragging) {
-                        params.x = startX + (event.rawX - touchX).toInt()
+                        params.x = draggedX(startX, event.rawX, touchX, params)
                         params.y = startY + (event.rawY - touchY).toInt()
                         windowManager.updateViewLayout(target, params)
                     }
@@ -376,6 +366,17 @@ class FloatingService : Service() {
                 else -> false
             }
         }
+    }
+
+    private fun draggedX(
+        startX: Int,
+        rawX: Float,
+        touchX: Float,
+        params: WindowManager.LayoutParams
+    ): Int {
+        val dx = (rawX - touchX).toInt()
+        val horizontalGravity = params.gravity and Gravity.HORIZONTAL_GRAVITY_MASK
+        return if (horizontalGravity == Gravity.RIGHT) startX - dx else startX + dx
     }
 
     private fun minimizeWidget() {
@@ -437,6 +438,7 @@ class FloatingService : Service() {
         val btnToggle = inputView!!.findViewById<ImageButton>(R.id.btnToggleTemplates)
 
         setupTemplates(templatesContainer, editText)
+        templatesVisible = false
 
         // Показать/скрыть шаблоны
         if (!templatesVisible) {
@@ -458,7 +460,6 @@ class FloatingService : Service() {
         btnSend.setOnClickListener {
             val text = editText.text.toString().trim()
             if (text.isNotEmpty()) {
-                lastText = text
                 sendToTermux(text)
                 editText.text.clear()
                 hideInputWindow()
@@ -468,10 +469,6 @@ class FloatingService : Service() {
 
         // Закрыть окно ввода
         btnClose.setOnClickListener {
-            val text = editText.text.toString().trim()
-            if (text.isNotEmpty()) {
-                lastText = text
-            }
             hideInputWindow()
         }
 
@@ -600,7 +597,6 @@ class FloatingService : Service() {
                 layoutParams = lp
 
                 setOnClickListener {
-                    lastText = template
                     sendToTermux(template)
                     hideInputWindow()
                     savedInputText = ""
@@ -720,22 +716,6 @@ class FloatingService : Service() {
     private fun copyToClipboard(text: String) {
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("FloatingInput", text))
-    }
-
-    /** Вставить в текущее приложение (кнопка T) */
-    private fun pasteToCurrentApp(text: String) {
-        copyToClipboard(text)
-        val service = FloatingAccessibilityService.instance
-        if (service != null) {
-            val ok = service.smartPaste(text)
-            if (ok) {
-                Toast.makeText(this, "→ $text", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "→ $text (в буфере)", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(this, "→ $text (в буфере, включите Accessibility)", Toast.LENGTH_SHORT).show()
-        }
     }
 
     /** Переключиться на Termux и вставить (send / шаблоны) */
