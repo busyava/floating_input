@@ -728,9 +728,19 @@ class FloatingService : Service() {
             startActivity(termuxIntent)
         }
 
-        FloatingAccessibilityService.instance?.smartPasteWithDelay(text, 600)
-
-        Toast.makeText(this, "→ $text", Toast.LENGTH_SHORT).show()
+        val a11y = FloatingAccessibilityService.instance
+        if (a11y != null) {
+            a11y.smartPasteWithDelay(text, 600)
+            Toast.makeText(this, "→ $text", Toast.LENGTH_SHORT).show()
+        } else {
+            // Служба спец.возможностей выключена — авто-вставка невозможна,
+            // текст уже в буфере, пользователь может вставить вручную.
+            Toast.makeText(
+                this,
+                "Текст в буфере. Включите спец.возможности для авто-вставки",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     companion object {
