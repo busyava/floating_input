@@ -30,7 +30,8 @@
             android:name=".FileUploadActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:taskAffinity=""
+            android:theme="@style/Theme.Transparent" />
 
         <service
             android:name=".FloatingService"

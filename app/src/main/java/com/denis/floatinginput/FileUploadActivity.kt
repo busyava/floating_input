@@ -22,13 +22,13 @@ class FileUploadActivity : AppCompatActivity() {
             finish()
             return@registerForActivityResult
         }
-        Toast.makeText(this, "Загрузка…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(applicationContext, "Загрузка…", Toast.LENGTH_SHORT).show()
         FileUploader(this).upload(uri) { result ->
             if (result.ok && result.homePath != null) {
                 copyToClipboard(result.homePath)
-                Toast.makeText(this, "Путь скопирован в буфер", Toast.LENGTH_LONG).show()
+                Toast.makeText(applicationContext, "Путь скопирован в буфер", Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(this, "Ошибка: ${result.error}", Toast.LENGTH_LONG).show()
+                Toast.makeText(applicationContext, "Ошибка: ${result.error}", Toast.LENGTH_LONG).show()
             }
             finish()
         }
