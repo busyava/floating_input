@@ -75,6 +75,9 @@ Hallcomputer:/home/denis/truenas/workshop/claude-inbox/<unique>
      токен (зашит в debug-апку).
    - `POST https://files.vkrutina.online/api/resources/claude-inbox/<unique>?override=true`
      с телом файла и заголовком `X-Auth: <token>`.
+     > Уточнено при реализации (Task 1): scope аккаунта filebrowser — корень со
+     > всеми шарами, поэтому фактический путь `workshop/claude-inbox/<unique>`
+     > (с префиксом шары). См. `UploadConfig.REMOTE_DIR`.
 5. **Успех:** в буфер обмена кладём
    `/home/denis/truenas/workshop/claude-inbox/<unique>` + тост «скопирован путь».
 6. **Ошибка** (нет сети, не тот код ответа, исключение): тост с причиной; в
