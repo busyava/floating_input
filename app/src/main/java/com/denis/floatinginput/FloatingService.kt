@@ -543,7 +543,7 @@ class FloatingService : Service() {
         clipboard.setPrimaryClip(ClipData.newPlainText("FloatingInput", text))
     }
 
-    /** Переключиться на Termux и вставить (send / шаблоны) */
+    /** Переключиться на Termux и вставить */
     private fun sendToTermux(text: String) {
         copyToClipboard(text)
 
