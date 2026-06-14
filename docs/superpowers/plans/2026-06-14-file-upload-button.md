@@ -26,37 +26,14 @@
 
 ---
 
-## Task 1: Подготовка инфраструктуры filebrowser (prerequisite)
+## Task 1: Подготовка инфраструктуры filebrowser ✅ ВЫПОЛНЕНО 2026-06-14
 
-> Эта задача — внешняя (filebrowser admin), без неё загрузка не заработает, но кодовых изменений в ней нет. Выполняется параллельно/до сборки. Требует доступа к filebrowser (web admin или CLI контейнера на minipc — см. `project_media_hub`). Если доступа из текущей сессии нет — оставить как чек-лист для Дениса и заполнить креды в Task 3.
+> Выполнено и проверено сквозным тестом против реального filebrowser. Креды дал Денис; значения зашиты в `UploadConfig` (Task 3). Кодовых изменений тут нет.
 
-**Files:** нет (инфраструктура).
-
-- [ ] **Step 1: Проверить транспорт с работы**
-
-Денис открывает в браузере телефона **с рабочей сети**: `https://files.vkrutina.online`. Должна открыться страница входа filebrowser (подтверждает, что HTTPS проходит VLESS-фильтр). Если не открывается — стоп, дальнейшее бессмысленно.
-
-- [ ] **Step 2: Создать папку `claude-inbox` в шаре workshop**
-
-В filebrowser под админом: зайти в корень шары `workshop` → создать папку `claude-inbox`. (Либо на TrueNAS: `mkdir` внутри dataset шары workshop с правами, под которыми работает filebrowser.)
-
-- [ ] **Step 3: Создать отдельный аккаунт filebrowser для апки**
-
-В filebrowser admin → Settings → User Management → New user:
-- username: `floatingapp`
-- password: сгенерировать стойкий, **записать** — пойдёт в `UploadConfig` (Task 3, Step 3).
-- Scope: корень шары workshop (тогда путь загрузки — `claude-inbox/<имя>`, как в спеке). Права: на запись.
-- Снять лишние права (admin/execute не нужны).
-
-- [ ] **Step 4: Подтвердить чтение на Hallcomputer**
-
-На домашнем (Hall) компьютере проверить, что шара примонтирована и путь читается:
-
-```bash
-ls -la /home/denis/truenas/workshop/claude-inbox/
-```
-
-Ожидание: папка существует и доступна на чтение (после загрузки сюда будут попадать файлы). Это тот префикс, что апка кладёт в буфер.
+- [x] **Step 1: Транспорт** — `https://files.vkrutina.online` отвечает; `POST /api/login` аккаунтом `sshhallwss` возвращает JWT. (Финальную проверку именно с рабочей сети телефона делает Денис при ручном тесте, Task 8.)
+- [x] **Step 2: Папка** — создана `workshop/claude-inbox/` через `POST /api/resources/workshop/claude-inbox/` (200). Внимание: scope аккаунта `sshhallwss` — корень со всеми шарами, поэтому путь `workshop/claude-inbox`, **не** `claude-inbox`.
+- [x] **Step 3: Аккаунт** — используется существующий `sshhallwss` (пароль `Kashatka123.`); права на запись подтверждены успешной заливкой.
+- [x] **Step 4: Чтение на Hall** — залитый пробный файл появился в `/home/denis/truenas/workshop/claude-inbox/`, читается под `denis`. Пробник удалён.
 
 ---
 
@@ -195,9 +172,11 @@ package com.denis.floatinginput
  */
 object UploadConfig {
     const val BASE_URL = "https://files.vkrutina.online"
-    const val USERNAME = "floatingapp"
-    const val PASSWORD = "ЗАПОЛНИТЬ_ИЗ_TASK_1"        // пароль аккаунта floatingapp
-    const val REMOTE_DIR = "claude-inbox"             // папка в шаре workshop (scope аккаунта = корень workshop)
+    const val USERNAME = "sshhallwss"
+    const val PASSWORD = "Kashatka123."
+    // scope аккаунта = корень со всеми шарами (downloads/media/scans/share/workshop),
+    // поэтому путь включает имя шары workshop
+    const val REMOTE_DIR = "workshop/claude-inbox"
     const val HOME_PREFIX = "/home/denis/truenas/workshop/claude-inbox/"
 }
 ```
@@ -655,20 +634,15 @@ git commit -m "feat: wire + button to FileUploadActivity, remove templates code"
 
 **Files:** нет (сборка/деплой).
 
-- [ ] **Step 1: Заполнить пароль аккаунта**
+- [ ] **Step 1: Проверить креды в UploadConfig**
 
-Убедиться, что в `UploadConfig.PASSWORD` стоит реальный пароль из Task 1 (не `ЗАПОЛНИТЬ_ИЗ_TASK_1`). Если Task 1 ещё не выполнен — выполнить сейчас, иначе загрузка будет давать «не удалось войти».
-
-```bash
-grep -n "ЗАПОЛНИТЬ" app/src/main/java/com/denis/floatinginput/UploadConfig.kt
-```
-
-Expected: пусто (плейсхолдер заменён). Если нашёлся — заменить на пароль, затем commit:
+Креды уже зашиты при реализации Task 3 (`sshhallwss` / `Kashatka123.` / `workshop/claude-inbox`) и проверены сквозным тестом в Task 1. Убедиться, что плейсхолдеров не осталось:
 
 ```bash
-git add app/src/main/java/com/denis/floatinginput/UploadConfig.kt
-git commit -m "chore: set filebrowser app password"
+grep -n "ЗАПОЛНИТЬ" app/src/main/java/com/denis/floatinginput/UploadConfig.kt || echo "ok, плейсхолдеров нет"
 ```
+
+Expected: `ok, плейсхолдеров нет`.
 
 - [ ] **Step 2: Собрать debug APK**
 
