@@ -24,21 +24,15 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageButton
-import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import org.json.JSONArray
 
 class FloatingService : Service() {
 
     private lateinit var windowManager: WindowManager
     private var widgetView: View? = null
     private var inputView: View? = null
-    private var templates = mutableListOf<String>()
-    private var templatesVisible = false
     private val healthHandler = Handler(Looper.getMainLooper())
     private var lastRestartAttempt = 0L
     private var notificationIsWarning = false
@@ -51,7 +45,6 @@ class FloatingService : Service() {
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        templates = loadTemplates()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         createWidget()
@@ -433,27 +426,13 @@ class FloatingService : Service() {
 
         val btnSend = inputView!!.findViewById<ImageButton>(R.id.btnSend)
         val btnClose = inputView!!.findViewById<ImageButton>(R.id.btnClose)
-        val templatesScroll = inputView!!.findViewById<HorizontalScrollView>(R.id.templatesScroll)
-        val templatesContainer = inputView!!.findViewById<LinearLayout>(R.id.templatesContainer)
-        val btnToggle = inputView!!.findViewById<ImageButton>(R.id.btnToggleTemplates)
+        val btnAddFile = inputView!!.findViewById<ImageButton>(R.id.btnAddFile)
 
-        setupTemplates(templatesContainer, editText)
-        templatesVisible = false
-
-        // Показать/скрыть шаблоны
-        if (!templatesVisible) {
-            templatesScroll.visibility = View.GONE
-            btnToggle.setImageResource(android.R.drawable.arrow_down_float)
-        }
-        btnToggle.setOnClickListener {
-            templatesVisible = !templatesVisible
-            if (templatesVisible) {
-                templatesScroll.visibility = View.VISIBLE
-                btnToggle.setImageResource(android.R.drawable.arrow_up_float)
-            } else {
-                templatesScroll.visibility = View.GONE
-                btnToggle.setImageResource(android.R.drawable.arrow_down_float)
-            }
+        // «＋» — выбрать файл и залить домой (через прозрачную activity-прокси)
+        btnAddFile.setOnClickListener {
+            val intent = Intent(this, FileUploadActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
         }
 
         // Отправить: копировать текст → Termux
@@ -557,160 +536,6 @@ class FloatingService : Service() {
         dialog.show()
     }
 
-    // --- Шаблоны ---
-
-    private fun loadTemplates(): MutableList<String> {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val json = prefs.getString(KEY_TEMPLATES, null)
-        if (json != null) {
-            val arr = JSONArray(json)
-            return (0 until arr.length()).map { arr.getString(it) }.toMutableList()
-        }
-        return DEFAULT_TEMPLATES.toMutableList()
-    }
-
-    private fun saveTemplates() {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        prefs.edit().putString(KEY_TEMPLATES, JSONArray(templates).toString()).apply()
-    }
-
-    private fun setupTemplates(container: LinearLayout, editText: EditText) {
-        container.removeAllViews()
-        val themedContext = ContextThemeWrapper(this, R.style.Theme_FloatingInput)
-
-        for ((index, template) in templates.withIndex()) {
-            val btn = Button(this).apply {
-                text = template
-                isAllCaps = false
-                textSize = 13f
-                minWidth = 0
-                minimumWidth = 0
-                setPadding(20, 8, 20, 8)
-                setBackgroundResource(R.drawable.template_button)
-
-                val lp = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    marginEnd = 6
-                }
-                layoutParams = lp
-
-                setOnClickListener {
-                    sendToTermux(template)
-                    hideInputWindow()
-                    savedInputText = ""
-                }
-
-                setOnLongClickListener {
-                    showTemplateMenu(themedContext, index, template, container, editText)
-                    true
-                }
-            }
-            container.addView(btn)
-        }
-
-        // Кнопка "+" — добавить шаблон
-        val addBtn = Button(this).apply {
-            text = "+"
-            isAllCaps = false
-            textSize = 16f
-            minWidth = 0
-            minimumWidth = 0
-            setPadding(24, 8, 24, 8)
-            setBackgroundResource(R.drawable.template_button)
-
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            layoutParams = lp
-
-            setOnClickListener {
-                showTemplateEditDialog(themedContext, null, null, container, editText)
-            }
-        }
-        container.addView(addBtn)
-    }
-
-    private fun showTemplateMenu(
-        ctx: ContextThemeWrapper, index: Int, template: String,
-        container: LinearLayout, editText: EditText
-    ) {
-        val items = mutableListOf("Вставить в поле", "Редактировать", "Удалить")
-        if (index > 0) items.add("← Влево")
-        if (index < templates.size - 1) items.add("Вправо →")
-        val dialog = AlertDialog.Builder(ctx)
-            .setTitle(template)
-            .setItems(items.toTypedArray()) { _, which ->
-                when (items[which]) {
-                    "Вставить в поле" -> {
-                        editText.setText(template)
-                        editText.setSelection(template.length)
-                    }
-                    "Редактировать" -> showTemplateEditDialog(ctx, index, template, container, editText)
-                    "Удалить" -> {
-                        templates.removeAt(index)
-                        saveTemplates()
-                        setupTemplates(container, editText)
-                    }
-                    "← Влево" -> {
-                        templates[index] = templates[index - 1].also { templates[index - 1] = template }
-                        saveTemplates()
-                        setupTemplates(container, editText)
-                    }
-                    "Вправо →" -> {
-                        templates[index] = templates[index + 1].also { templates[index + 1] = template }
-                        saveTemplates()
-                        setupTemplates(container, editText)
-                    }
-                }
-            }
-            .create()
-        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
-        dialog.show()
-    }
-
-    private fun showTemplateEditDialog(
-        ctx: ContextThemeWrapper, index: Int?, current: String?,
-        container: LinearLayout, editText: EditText
-    ) {
-        val input = EditText(ctx).apply {
-            hint = "Команда..."
-            if (current != null) {
-                setText(current)
-                setSelection(current.length)
-            }
-        }
-        val frame = FrameLayout(ctx).apply {
-            setPadding(48, 16, 48, 0)
-            addView(input)
-        }
-
-        val title = if (index != null) "Редактировать" else "Добавить шаблон"
-        val btnText = if (index != null) "Сохранить" else "Добавить"
-
-        val dialog = AlertDialog.Builder(ctx)
-            .setTitle(title)
-            .setView(frame)
-            .setPositiveButton(btnText) { _, _ ->
-                val text = input.text.toString().trim()
-                if (text.isNotEmpty()) {
-                    if (index != null) {
-                        templates[index] = text
-                    } else {
-                        templates.add(text)
-                    }
-                    saveTemplates()
-                    setupTemplates(container, editText)
-                }
-            }
-            .setNegativeButton("Отмена", null)
-            .create()
-        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
-        dialog.show()
-    }
-
     // --- Вставка текста ---
 
     private fun copyToClipboard(text: String) {
@@ -718,7 +543,7 @@ class FloatingService : Service() {
         clipboard.setPrimaryClip(ClipData.newPlainText("FloatingInput", text))
     }
 
-    /** Переключиться на Termux и вставить (send / шаблоны) */
+    /** Переключиться на Termux и вставить */
     private fun sendToTermux(text: String) {
         copyToClipboard(text)
 
@@ -752,13 +577,5 @@ class FloatingService : Service() {
         private const val INITIAL_CHECK_DELAY = 30_000L
         private const val RESTART_COOLDOWN = 60_000L
         private const val WIDGET_ALPHA = 0.5f
-        private const val PREFS_NAME = "floating_input_prefs"
-        private const val KEY_TEMPLATES = "templates"
-        private val DEFAULT_TEMPLATES = listOf(
-            "y", "n", "ls", "cd ..", "pwd",
-            "git status", "git log --oneline -5",
-            "/help", "/exit", "exit",
-            "ssh ", "cd ", "cat ", "grep "
-        )
     }
 }
