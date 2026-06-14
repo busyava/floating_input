@@ -7,6 +7,7 @@ import android.os.Looper
 import android.provider.OpenableColumns
 import android.util.Log
 import org.json.JSONObject
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Date
@@ -69,14 +70,14 @@ class FileUploader(private val context: Context) {
             val body = JSONObject()
                 .put("username", UploadConfig.USERNAME)
                 .put("password", UploadConfig.PASSWORD)
-                .put("recaptcha", "")
+                .put("recaptcha", "")   // filebrowser требует поле, recaptcha отключена
                 .toString()
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             if (conn.responseCode != 200) {
                 Log.w(TAG, "login HTTP ${conn.responseCode}")
                 null
             } else {
-                conn.inputStream.bufferedReader().readText().trim().ifEmpty { null }
+                conn.inputStream.bufferedReader().use { it.readText() }.trim().ifEmpty { null }
             }
         } finally {
             conn.disconnect()
@@ -97,10 +98,17 @@ class FileUploader(private val context: Context) {
             setChunkedStreamingMode(0)               // потоково, не держим файл в памяти
         }
         return try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                conn.outputStream.use { output -> input.copyTo(output) }
-            } ?: return -1
-            conn.responseCode
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw IOException("Не удалось открыть файл: $uri")
+            input.use { source ->
+                conn.outputStream.use { output -> source.copyTo(output) }
+            }
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                val errBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                Log.w(TAG, "upload HTTP $code: $errBody")
+            }
+            code
         } finally {
             conn.disconnect()
         }
